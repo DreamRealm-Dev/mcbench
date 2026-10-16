@@ -1,0 +1,16 @@
+{
+    "_comment": "1.20.1 适配（Forge + Fabric）。本机离线缓存暂无 MC 1.20.1 客户端/映射，需联网构建。",
+    "minecraft_version": "1.20.1",
+    "java_version": 17,
+    "parchment": "1.20.1:2023.09.03",
+    "platforms": [
+        "forge",
+        "fabric"
+    ],
+    "fabric": {
+        "loader_version": "0.15.11"
+    },
+    "forge": {
+        "loader_version": "47.3.1"
+    }
+}

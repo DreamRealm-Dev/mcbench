@@ -1,0 +1,25 @@
+# Gradle
+.gradle/
+build/
+*/build/
+run/
+*/run/
+
+# Node / Rust
+node_modules/
+target/
+vendor/
+
+# Local-only reference jars (third-party, not redistributed)
+libs/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+Thumbs.db
+Desktop.ini
+
+# Logs / crash dumps
+*.log
+hs_err_pid*.log

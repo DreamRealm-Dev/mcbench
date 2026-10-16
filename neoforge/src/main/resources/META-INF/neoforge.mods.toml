@@ -1,0 +1,20 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="MIT"
+
+[[mixins]]
+config="mcbench.neoforge.mixins.json"
+
+[[mods]]
+modId="mcbench"
+version="${version}"
+displayName="MCBench - 不服跑个分"
+description="Minecraft 通用跑分模组：规则透明、跨设备可比的性能基准测试。"
+authors="MCBench"
+
+[[dependencies.mcbench]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1,1.22)"
+ordering="NONE"
+side="BOTH"

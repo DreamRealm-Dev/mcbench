@@ -1,0 +1,31 @@
+// ============================================================
+// MCBench 根构建脚本
+// ============================================================
+
+subprojects {
+    group = rootProject.properties['maven_group']
+    version = rootProject.properties['mod_version']
+    repositories {
+        mavenCentral()
+        maven { url = "https://maven.fabricmc.net/" }
+        maven { url = "https://maven.neoforged.net/releases" }
+        maven { url = "https://maven.parchmentmc.org/" }
+    }
+}
+
+// 收集各平台最终产物到根目录 build/libs（先构建各平台）
+tasks.register('collectJars', Copy) {
+    group = 'build'
+    description = '收集 fabric/neoforge 最终 jar 到 build/libs'
+    dependsOn gradle.ext.mcbenchPlatforms.collect { ":${it}:build" }
+    into layout.buildDirectory.dir('libs')
+    gradle.ext.mcbenchPlatforms.each { p ->
+        from(project(":${p}").tasks.named('remapJar')) { rename { n -> "mcbench-${p}-${rootProject.properties['mod_version']}.jar" } }
+    }
+}
+
+tasks.register('buildMcbench') {
+    group = 'build'
+    description = '构建当前版本配置的全部平台'
+    dependsOn 'collectJars'
+}

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "mcbench",
+  "version": "${version}",
+  "name": "MCBench - 不服跑个分",
+  "description": "Minecraft 通用跑分模组：规则透明、跨设备可比的性能基准测试。",
+  "authors": [
+    "MCBench"
+  ],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "client": [
+      "io.mcbench.fabric.McBenchFabric"
+    ],
+    "server": [
+      "io.mcbench.fabric.McBenchFabricServer"
+    ]
+  },
+  "mixins": [
+    "mcbench.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=0.15.0",
+    "minecraft": "~${minecraft}"
+  }
+}

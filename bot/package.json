@@ -1,0 +1,10 @@
+{
+  "name": "mcbench-fake-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "MCBench 纯客户端假人 Bot：基于 Mineflayer 模拟多个玩家连接服务器，可行走/跳跃/挖掘。",
+  "type": "module",
+  "dependencies": {
+    "mineflayer": "^4.20.1"
+  }
+}

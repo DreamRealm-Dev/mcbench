@@ -1,0 +1,106 @@
+// ============================================================
+// MCBench neoforge 模块：编译 common 共享源码 + neoforge 入口
+// 本模块必须使用 Gradle 8.8+（本机离线用 9.2.1，NeoGradle moddev）
+// ============================================================
+
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.134'
+}
+
+def mc = gradle.ext.mcbenchMcVersion
+def cfg = gradle.ext.mcbenchConfig
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(cfg.java_version as int)
+    }
+    withSourcesJar()
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "../common/src/main/java"
+            srcDir "../common/src/version/${mc}/java"
+        }
+        resources {
+            srcDir "../common/src/main/resources"
+            srcDir "../common/src/version/${mc}/resources"
+        }
+    }
+}
+
+repositories {
+    maven { url = uri("https://repo.opencollab.dev/main/") }
+}
+
+dependencies {
+    implementation("org.geysermc.mcprotocollib:protocol:1.21-SNAPSHOT") {
+        changing = true
+        // NeoForge 已自带这些库，排除传递依赖避免版本冲突
+        exclude group: 'io.netty', module: 'netty-all'
+        exclude group: 'io.netty.incubator', module: 'netty-incubator-transport-native-io_uring'
+        exclude group: 'com.google.code.gson', module: 'gson'
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+        exclude group: 'net.raphimc', module: 'MinecraftAuth'
+    }
+    jarJar("org.geysermc.mcprotocollib:protocol:1.21-SNAPSHOT") {
+        changing = true
+        exclude group: 'io.netty', module: 'netty-all'
+        exclude group: 'io.netty.incubator', module: 'netty-incubator-transport-native-io_uring'
+        exclude group: 'com.google.code.gson', module: 'gson'
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+        exclude group: 'net.raphimc', module: 'MinecraftAuth'
+    }
+    implementation("net.kyori:adventure-api:4.15.0")
+    jarJar("net.kyori:adventure-api:4.15.0")
+    implementation("net.kyori:adventure-text-serializer-gson:4.15.0")
+    jarJar("net.kyori:adventure-text-serializer-gson:4.15.0")
+}
+
+neoForge {
+    version = cfg.neoforge.loader_version as String
+
+    def p = cfg.parchment
+    if (p != null && !p.toString().isEmpty()) {
+        def parts = p.toString().split(':')
+        parchment {
+            minecraftVersion = parts[0]
+            mappingsVersion = parts[1]
+        }
+    }
+
+    runs {
+        create('client') {
+            client()
+            // 冒烟测试：-Dmcbench.smoketest / -Dmcbench.autostart 由命令行传入（默认不启用）
+            if (providers.gradleProperty('mcbench.smoketest').isPresent()) {
+                jvmArguments.add("-Dmcbench.smoketest=${providers.gradleProperty('mcbench.smoketest').get()}")
+            }
+            if (providers.gradleProperty('mcbench.autostart').isPresent()) {
+                jvmArguments.add("-Dmcbench.autostart=${providers.gradleProperty('mcbench.autostart').get()}")
+            }
+            if (providers.gradleProperty('mcbench.autostart.repeat').isPresent()) {
+                jvmArguments.add("-Dmcbench.autostart.repeat=${providers.gradleProperty('mcbench.autostart.repeat').get()}")
+            }
+        }
+    }
+
+    mods {
+        create(rootProject.properties['mod_id'] as String) {
+            sourceSet(sourceSets.main)
+        }
+    }
+}
+
+processResources {
+    inputs.property 'version', project.version
+    filesMatching('META-INF/neoforge.mods.toml') {
+        expand 'version': project.version
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

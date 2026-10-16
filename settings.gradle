@@ -1,0 +1,45 @@
+import groovy.json.JsonSlurper
+
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven { url = "https://maven.fabricmc.net/" }
+        maven { url = "https://maven.neoforged.net/releases" }
+        maven { url = "https://maven.parchmentmc.org/" }
+        mavenCentral()
+    }
+}
+
+rootProject.name = 'mcbench'
+
+// ---------------------------------------------------------------------------
+// 版本矩阵：通过 -Pmc.version=<configs 下的文件名> 选择要构建的 Minecraft 版本。
+// 每个 configs/<版本>.json 定义了 MC 版本、Java 版本、加载器与平台列表。
+// 平台可用 -Pmc.platforms=<fabric|neoforge|forge> 覆盖。
+//
+// 注意：本机离线环境下 fabric-loom 1.6-SNAPSHOT 只能在 Gradle 8.7 解析，
+// 而 NeoGradle moddev 2.0.134 需要 Gradle 8.8+（本机用 9.2.1），
+// 因此 fabric 与 neoforge 必须分平台构建（common 为共享源码目录，不单独成工程）：
+//   Gradle 8.7 :  gradle :fabric:build  -Pmc.platforms=fabric
+//   Gradle 9.2.1: gradle :neoforge:build -Pmc.platforms=neoforge
+// ---------------------------------------------------------------------------
+def configName = providers.gradleProperty('mc.version').orElse('1.21.1').get()
+def configFile = file("configs/${configName}.json")
+if (!configFile.exists()) {
+    throw new GradleException("缺少版本配置: configs/${configName}.json（可用 -Pmc.version= 指定）")
+}
+
+def cfg = new JsonSlurper().parse(configFile) as Map
+gradle.ext.mcbenchConfig = cfg
+gradle.ext.mcbenchMcVersion = cfg.minecraft_version as String
+
+def platformsOverride = gradle.startParameter.projectProperties['mc.platforms']
+gradle.ext.mcbenchPlatforms = (platformsOverride
+        ? platformsOverride.tokenize(',').collect { it.trim() }.findAll { !it.isEmpty() }
+        : ((cfg.platforms as List) ?: []).collect { it as String })
+
+println "=============================================="
+println " MCBench 构建 | Minecraft ${gradle.ext.mcbenchMcVersion} | 平台: ${gradle.ext.mcbenchPlatforms.join(', ')}"
+println "=============================================="
+
+gradle.ext.mcbenchPlatforms.each { include it }

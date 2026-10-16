@@ -1,0 +1,354 @@
+package io.mcbench.server;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import io.mcbench.bench.FakeClientBridge;
+import io.mcbench.bench.SceneBuilder;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * 远端服务端跑分执行器。
+ *
+ * 管理方 /mcbench accept 后，在服务器线程 tick 运行：
+ *   实体碰撞(50) -> 实体碰撞(300) -> TNT -> 寻路压力 -> 方块更新 -> 假人玩家 -> 极限运行
+ *
+ * 使用独立超平坦测试维度（若预创建成功），并安全冻结其他世界。
+ * 结果写入服务器目录 benchmark-results/mcbench-server-remote-<时间戳>.json。
+ */
+public final class ServerRemoteBenchmarkRunner {
+    public static final ServerRemoteBenchmarkRunner INSTANCE = new ServerRemoteBenchmarkRunner();
+
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+
+    private enum State {
+        IDLE,
+        ENTITY_LIGHT_PREP, ENTITY_LIGHT_SAMPLE,
+        ENTITY_HEAVY_PREP, ENTITY_HEAVY_SAMPLE,
+        TNT_PREP, TNT_SAMPLE,
+        PATHFINDING_PREP, PATHFINDING_SAMPLE,
+        BLOCK_UPDATE_PREP,
+        PLAYERS_PREP, PLAYERS_SAMPLE,
+        MAX_TICK,
+        DONE
+    }
+
+    private boolean running = false;
+    private MinecraftServer server;
+    private ServerLevel activeLevel;
+    private String clientId = "";
+    private String mode = "";
+    private String requesterUuid = "";
+    private String requesterName = "";
+    private State state = State.IDLE;
+    private final Map<String, Object> metrics = new LinkedHashMap<>();
+    private long sampleStartTick = -1;
+    private long sampleStartNanos = 0;
+    private int targetTicks = 100;
+    private Path lastResultPath;
+    private final List<ServerLevel> frozenLevels = new ArrayList<>();
+    private int originalMaxPlayers = -1;
+
+    private ServerRemoteBenchmarkRunner() {
+    }
+
+    public synchronized boolean start(MinecraftServer server, RemoteTestRequest request) {
+        if (running) return false;
+        this.server = server;
+        this.clientId = request.clientId();
+        this.mode = request.mode();
+        this.requesterUuid = request.requesterUuid();
+        this.requesterName = request.requesterName();
+        this.metrics.clear();
+        this.sampleStartTick = -1;
+        this.sampleStartNanos = 0;
+        this.state = State.ENTITY_LIGHT_PREP;
+        this.running = true;
+
+        // 先铺设主世界平台作为兜底
+        SceneBuilder.setTestY(64);
+        SceneBuilder.prepareFlatArea(server.overworld());
+
+        // 如果独立测试维度已预创建，激活并切换到该维度；否则回退主世界平台
+        if (McBenchDimension.getTestLevel() != null) {
+            McBenchDimension.reset(server);
+            McBenchDimension.activate(server);
+            activeLevel = McBenchDimension.getTestLevel();
+            ServerMcBenchLog.LOGGER.info("[MCBench] 远端跑分切换到独立测试维度 {}", McBenchDimension.LEVEL_KEY.location());
+        } else {
+            activeLevel = server.overworld();
+        }
+
+        freezeOtherLevels();
+        ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端跑分开始: clientId={} mode={}", clientId, mode);
+        return true;
+    }
+
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** 由 MinecraftServerMixin 在 tick 调用（服务器线程）。 */
+    public synchronized void tick(MinecraftServer server) {
+        if (!running || this.server != server) return;
+        try {
+            advance();
+        } catch (Exception e) {
+            ServerMcBenchLog.LOGGER.error("[MCBench] 远端服务端跑分异常，中止: ", e);
+            finish();
+        }
+    }
+
+    private void advance() {
+        ServerLevel level = activeLevel != null ? activeLevel : server.overworld();
+        if (level == null) {
+            finish();
+            return;
+        }
+        switch (state) {
+            case ENTITY_LIGHT_PREP -> prepEntity(level, 50, "entityLight", State.ENTITY_LIGHT_SAMPLE);
+            case ENTITY_LIGHT_SAMPLE -> sample(level, "entityLight", State.ENTITY_HEAVY_PREP);
+            case ENTITY_HEAVY_PREP -> prepEntity(level, 300, "entityHeavy", State.ENTITY_HEAVY_SAMPLE);
+            case ENTITY_HEAVY_SAMPLE -> sample(level, "entityHeavy", State.TNT_PREP);
+            case TNT_PREP -> {
+                SceneBuilder.removeAllEntities(level);
+                SceneBuilder.spawnTntField(level);
+                beginSample("tnt");
+                state = State.TNT_SAMPLE;
+            }
+            case TNT_SAMPLE -> sample(level, "tnt", State.PATHFINDING_PREP);
+            case PATHFINDING_PREP -> {
+                SceneBuilder.buildPathfindingStress(level, 50);
+                beginSample("pathfinding");
+                state = State.PATHFINDING_SAMPLE;
+            }
+            case PATHFINDING_SAMPLE -> sample(level, "pathfinding", State.BLOCK_UPDATE_PREP);
+            case BLOCK_UPDATE_PREP -> {
+                long ms = SceneBuilder.buildBlockUpdateStress(level);
+                metrics.put("blockUpdateSeconds", Math.round(ms / 1000.0 * 100.0) / 100.0);
+                ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端方块更新: {}ms", ms);
+                state = State.PLAYERS_PREP;
+            }
+            case PLAYERS_PREP -> {
+                SceneBuilder.removeAllEntities(level);
+                startFakePlayers(level);
+                beginSample("players");
+                state = State.PLAYERS_SAMPLE;
+            }
+            case PLAYERS_SAMPLE -> sample(level, "players", State.MAX_TICK);
+            case MAX_TICK -> sampleMaxTick();
+            default -> finish();
+        }
+    }
+
+    private void prepEntity(ServerLevel level, int count, String prefix, State next) {
+        SceneBuilder.removeAllEntities(level);
+        SceneBuilder.buildPigPen(level, count);
+        beginSample(prefix);
+        state = next;
+    }
+
+    private void beginSample(String prefix) {
+        sampleStartTick = server.getTickCount();
+        sampleStartNanos = System.nanoTime();
+        targetTicks = 100;
+        ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端采样开始: {}", prefix);
+    }
+
+    private void sample(ServerLevel level, String prefix, State next) {
+        if ("players".equals(prefix)) teleportFakePlayers(level);
+        long elapsedTicks = server.getTickCount() - sampleStartTick;
+        if (elapsedTicks < targetTicks) return;
+        double seconds = (System.nanoTime() - sampleStartNanos) / 1e9;
+        if (elapsedTicks > 0 && seconds > 0) {
+            double tps = elapsedTicks / seconds;
+            double mspt = seconds * 1000.0 / elapsedTicks;
+            metrics.put(prefix + "Tps", Math.round(tps * 100.0) / 100.0);
+            metrics.put(prefix + "Mspt", Math.round(mspt * 100.0) / 100.0);
+            ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端 {}: TPS={} MSPT={}", prefix, tps, mspt);
+        }
+        if ("players".equals(prefix)) stopFakePlayers(level);
+        if (next == State.MAX_TICK) {
+            beginMaxTick();
+            return;
+        }
+        state = next;
+    }
+
+    private void beginMaxTick() {
+        ServerLevel level = activeLevel != null ? activeLevel : server.overworld();
+        SceneBuilder.removeAllEntities(level);
+        sampleStartTick = server.getTickCount();
+        sampleStartNanos = System.nanoTime();
+        targetTicks = 200;
+        server.tickRateManager().requestGameToSprint(200);
+        state = State.MAX_TICK;
+    }
+
+    private void sampleMaxTick() {
+        long elapsedTicks = server.getTickCount() - sampleStartTick;
+        boolean sprinting = server.tickRateManager().isSprinting();
+        if (elapsedTicks < targetTicks && sprinting) return;
+        double seconds = (System.nanoTime() - sampleStartNanos) / 1e9;
+        if (elapsedTicks > 0 && seconds > 0) {
+            metrics.put("maxTickSeconds", Math.round(seconds * 100.0) / 100.0);
+            metrics.put("maxTickTps", Math.round(elapsedTicks / seconds * 100.0) / 100.0);
+            ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端极限运行: {} ticks / {}s", elapsedTicks, seconds);
+        }
+        finish();
+    }
+
+    private void finish() {
+        ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端跑分结束: clientId={} metrics={}", clientId, metrics);
+        writeResult();
+        notifyRequester();
+        if (server != null && server.overworld() != null) stopFakePlayers(server.overworld());
+        unfreezeLevels();
+        if (McBenchDimension.getTestLevel() != null) McBenchDimension.deactivate(server);
+        activeLevel = null;
+        SceneBuilder.setTestY(SceneBuilder.Y_GROUND);
+        running = false;
+        state = State.IDLE;
+        server = null;
+        clientId = "";
+        mode = "";
+        requesterUuid = "";
+        requesterName = "";
+        lastResultPath = null;
+    }
+
+    private void notifyRequester() {
+        if (server == null || requesterUuid == null || requesterUuid.isEmpty()) return;
+        try {
+            ServerPlayer player = server.getPlayerList().getPlayer(UUID.fromString(requesterUuid));
+            if (player != null) {
+                player.sendSystemMessage(Component.literal(
+                        "[MCBench] 远端服务端跑分完成，结果文件: " + (lastResultPath == null ? "未知" : lastResultPath)));
+            }
+        } catch (Exception e) {
+            ServerMcBenchLog.LOGGER.warn("[MCBench] 通知发起玩家失败: {}", e.toString());
+        }
+    }
+
+    private int fakePlayerCount() {
+        return "V2_QUICK".equals(mode) ? 20 : 40;
+    }
+
+    /** 把假人传送到当前测试维度。 */
+    private void teleportFakePlayers(ServerLevel target) {
+        try {
+            for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                if (player.getGameProfile().getName().startsWith("MCBenchFake")
+                        && player.level() != target) {
+                    player.teleportTo(target, 0.5, 65, 0.5, 0, 0);
+                    ServerMcBenchLog.LOGGER.info("[MCBench] 假人 {} 已传送到 {}", player.getGameProfile().getName(), target.dimension().location());
+                }
+            }
+        } catch (Exception e) {
+            ServerMcBenchLog.LOGGER.warn("[MCBench] 传送假人到测试维度失败: {}", e.toString());
+        }
+    }
+
+    private void startFakePlayers(ServerLevel level) {
+        if (!FakeClientBridge.INSTANCE.isAvailable()) {
+            ServerMcBenchLog.LOGGER.info("[MCBench] 未找到假人客户端，回退实体模拟");
+            SceneBuilder.buildPlayerSimulation(level, fakePlayerCount());
+            return;
+        }
+        try {
+            if (!server.isDedicatedServer() && !server.isPublished()) {
+                server.publishServer(net.minecraft.world.level.GameType.CREATIVE, false, 0);
+            }
+            java.lang.reflect.Field f = net.minecraft.server.players.PlayerList.class.getDeclaredField("maxPlayers");
+            f.setAccessible(true);
+            originalMaxPlayers = f.getInt(server.getPlayerList());
+            f.setInt(server.getPlayerList(), Math.max(fakePlayerCount() + 5, originalMaxPlayers));
+        } catch (Exception e) {
+            ServerMcBenchLog.LOGGER.warn("[MCBench] 扩展玩家上限失败: {}", e.toString());
+        }
+        String host = "127.0.0.1";
+        int port = server.getPort();
+        boolean ok = FakeClientBridge.INSTANCE.startFakeClients(host, port, fakePlayerCount(), "MCBenchFake", 30, "walk");
+        ServerMcBenchLog.LOGGER.info("[MCBench] 远端假人启动: ok={} count={}", ok, fakePlayerCount());
+        if (!ok) {
+            SceneBuilder.buildPlayerSimulation(level, fakePlayerCount());
+        }
+    }
+
+    private void stopFakePlayers(ServerLevel level) {
+        FakeClientBridge.INSTANCE.stopAll();
+        if (originalMaxPlayers > 0) {
+            try {
+                java.lang.reflect.Field f = net.minecraft.server.players.PlayerList.class.getDeclaredField("maxPlayers");
+                f.setAccessible(true);
+                f.setInt(server.getPlayerList(), originalMaxPlayers);
+            } catch (Exception e) {
+                ServerMcBenchLog.LOGGER.warn("[MCBench] 恢复玩家上限失败: {}", e.toString());
+            }
+            originalMaxPlayers = -1;
+        }
+    }
+
+    /** 安全冻结其他世界：只保留当前测试维度继续 tick。 */
+    private void freezeOtherLevels() {
+        frozenLevels.clear();
+        ServerLevel keep = activeLevel != null ? activeLevel : server.overworld();
+        try {
+            for (ServerLevel level : server.getAllLevels()) {
+                if (level != keep) {
+                    level.tickRateManager().setFrozen(true);
+                    frozenLevels.add(level);
+                }
+            }
+            ServerMcBenchLog.LOGGER.info("[MCBench] 已安全冻结 {} 个其他世界", frozenLevels.size());
+        } catch (Exception e) {
+            ServerMcBenchLog.LOGGER.warn("[MCBench] 冻结其他世界失败: {}", e.toString());
+        }
+    }
+
+    private void unfreezeLevels() {
+        for (ServerLevel level : frozenLevels) {
+            try {
+                level.tickRateManager().setFrozen(false);
+            } catch (Exception e) {
+                ServerMcBenchLog.LOGGER.warn("[MCBench] 解冻世界失败: {}", e.toString());
+            }
+        }
+        frozenLevels.clear();
+    }
+
+    private void writeResult() {
+        try {
+            Path dir = server != null ? server.getFile("benchmark-results") : Path.of("benchmark-results");
+            Files.createDirectories(dir);
+            String stamp = LocalDateTime.now().format(TS);
+            Path json = dir.resolve("mcbench-server-remote-" + stamp + ".json");
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("clientId", clientId);
+            out.put("mode", mode);
+            out.put("requesterUuid", requesterUuid);
+            out.put("requesterName", requesterName);
+            out.put("timestamp", System.currentTimeMillis());
+            out.put("metrics", metrics);
+            Files.writeString(json, GSON.toJson(out), StandardCharsets.UTF_8);
+            lastResultPath = json;
+            ServerMcBenchLog.LOGGER.info("[MCBench] 远端服务端跑分结果已写入 {}", json);
+        } catch (Exception e) {
+            ServerMcBenchLog.LOGGER.warn("[MCBench] 远端服务端跑分结果写入失败: {}", e.toString());
+        }
+    }
+}

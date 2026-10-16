@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MCBench 2.0.0 更新日志</title>
+<style>
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #101418;
+    color: #e8e8e8;
+    margin: 0;
+    padding: 24px;
+    line-height: 1.7;
+  }
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+    background: #1a1f26;
+    border-radius: 12px;
+    padding: 28px 32px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.4);
+  }
+  h1 { color: #ffcc55; margin-top: 0; }
+  h2 { color: #66ccff; border-bottom: 1px solid #333; padding-bottom: 6px; margin-top: 28px; }
+  h3 { color: #88dd88; margin-bottom: 4px; }
+  .badge {
+    display: inline-block;
+    background: #2a3a4a;
+    color: #99ddff;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 13px;
+    margin-right: 6px;
+  }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  .ok { color: #88dd88; }
+  .warn { color: #ffaa55; }
+  .err { color: #ff6666; }
+  code {
+    background: #0d1117;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+  }
+  .footer { margin-top: 32px; color: #888; font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>MCBench 2.0.0 更新日志</h1>
+  <p><span class="badge">1.21.1</span><span class="badge">Fabric</span><span class="badge">NeoForge</span><span class="badge">2.0 基准</span></p>
+
+  <h2>🚀 新基准</h2>
+  <ul>
+    <li>左下角基准切换：<b>1.0 基准 / 2.0 基准</b></li>
+    <li>2.0 使用手机原版 1x 参考，倍率法计分不封顶</li>
+    <li>1.0 与 2.0 结果不可直接对比</li>
+  </ul>
+
+  <h2>🖥️ 客户端模式</h2>
+  <ul>
+    <li>2.0 原版综合</li>
+    <li>2.0 公平绝对性能</li>
+    <li>2.0 快测</li>
+    <li>2.0 机械动力专项：300 水车 + 300 烈焰人燃烧室方块实体超级燃烧</li>
+  </ul>
+
+  <h2>🧪 服务端联测</h2>
+  <ul>
+    <li>本地服务端性能：屏蔽渲染，实体碰撞 50/300、TNT、寻路、方块更新、极限运行</li>
+    <li>远端服务端性能：请求 / 同意 / 自动执行 / 结果通知</li>
+    <li>协同简化模式：自动移动 + 渲染采样</li>
+  </ul>
+
+  <h2>🌍 独立测试维度</h2>
+  <ul>
+    <li>服务端启动预创建 <code>mcbench:test_flat</code></li>
+    <li>平时不加入正常 tick</li>
+    <li>跑分时 activate，跑完 deactivate</li>
+    <li>热重置：清实体 + 铺平台</li>
+  </ul>
+
+  <h2>🤖 假人</h2>
+  <ul>
+    <li>Mineflayer：综合 40 人 / 快测 20 人，自动扩展玩家上限并传送到测试维度</li>
+    <li>MCProtocolLib 同 JVM 内置假人：已接入，不再依赖 Node.js</li>
+    <li>Rust Azalea：旧依赖链无法在当前 Rust 编译，暂时搁置</li>
+  </ul>
+
+  <h2>📦 产物</h2>
+  <ul>
+    <li><code>dist/mcbench-fabric-1.21.1-2.0.0.jar</code></li>
+    <li><code>dist/mcbench-neoforge-1.21.1-2.0.0.jar</code></li>
+    <li><code>dist/mcbench-bot.zip</code></li>
+  </ul>
+
+  <h2>⚠️ 已知限制</h2>
+  <ul>
+    <li class="warn">Rust Azalea 单文件二进制未完成</li>
+    <li class="warn">1.21.11 需要额外版本桥接</li>
+    <li class="warn">MCProtocolLib 内置假人仍在编译验证中</li>
+  </ul>
+
+  <div class="footer">MCBench 2.0.0 · 规则透明 · 不服跑个分</div>
+</div>
+</body>
+</html>

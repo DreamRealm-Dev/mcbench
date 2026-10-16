@@ -1,0 +1,18 @@
+{
+    "_comment": "parchment=null：本机 loom 缓存只有 mojang-only 分层映射（hash.2198），加 parchment 会产生新 hash 需联网。",
+    "minecraft_version": "1.21.1",
+    "java_version": 21,
+    "parchment": null,
+    "neoform_version": "1.21.1-20240808.144430",
+    "platforms": [
+        "fabric",
+        "neoforge"
+    ],
+    "fabric": {
+        "loader_version": "0.15.11",
+        "loom_version": "1.6-SNAPSHOT"
+    },
+    "neoforge": {
+        "loader_version": "21.1.111"
+    }
+}

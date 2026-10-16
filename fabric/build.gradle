@@ -1,0 +1,67 @@
+// ============================================================
+// MCBench fabric 模块：编译 common 共享源码 + fabric 入口
+// 本模块必须使用 Gradle 8.7（fabric-loom 1.6-SNAPSHOT 离线解析限制）
+// ============================================================
+
+plugins {
+    id 'java-library'
+    id 'fabric-loom' version "${fabric_loom_version}" 
+}
+
+def mc = gradle.ext.mcbenchMcVersion
+def cfg = gradle.ext.mcbenchConfig
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(cfg.java_version as int)
+    }
+    withSourcesJar()
+}
+
+loom {
+    mixin {
+        defaultRefmapName = "mcbench.refmap.json"
+    }
+}
+
+sourceSets {
+    main {
+        java {
+            srcDir "../common/src/main/java"
+            srcDir "../common/src/version/${mc}/java"
+        }
+        resources {
+            srcDir "../common/src/main/resources"
+            srcDir "../common/src/version/${mc}/resources"
+        }
+    }
+}
+
+repositories {
+    // MCProtocolLib（GeyserMC）
+    maven { url = uri("https://repo.opencollab.dev/main/") }
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${mc}"
+    mappings loom.officialMojangMappings()
+    modImplementation "net.fabricmc:fabric-loader:${cfg.fabric.loader_version}"
+    implementation("org.geysermc.mcprotocollib:protocol:1.21-SNAPSHOT") { changing = true }
+    include("org.geysermc.mcprotocollib:protocol:1.21-SNAPSHOT") { changing = true }
+    implementation("net.kyori:adventure-api:4.15.0")
+    include("net.kyori:adventure-api:4.15.0")
+    implementation("net.kyori:adventure-text-serializer-gson:4.15.0")
+    include("net.kyori:adventure-text-serializer-gson:4.15.0")
+}
+
+processResources {
+    inputs.property 'version', project.version
+    inputs.property 'minecraft', mc
+    filesMatching('fabric.mod.json') {
+        expand 'version': project.version, 'minecraft': mc
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

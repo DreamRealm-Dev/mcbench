@@ -1,0 +1,21 @@
+[package]
+name = "mcbench-bot-rust"
+version = "0.1.0"
+edition = "2021"
+description = "MCBench 纯客户端假人 Bot（Azalea/Rust 单文件二进制）"
+license = "MIT"
+
+[dependencies]
+azalea = "0.9.0"
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+
+[patch.crates-io]
+simdnbt = { path = "vendor/simdnbt" }
+azalea-chat = { path = "vendor/azalea-chat" }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "z"

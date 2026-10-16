@@ -1,0 +1,17 @@
+{
+    "_comment": "26.2（2026 年新版本号体系）适配。26.x 起 MC 官方直接提供未混淆(官方映射)客户端；本机 loom 缓存有 26.2 客户端 jar 可离线构建 Fabric 侧。",
+    "minecraft_version": "26.2",
+    "java_version": 25,
+    "parchment": null,
+    "unobfuscated": true,
+    "platforms": [
+        "fabric",
+        "neoforge"
+    ],
+    "fabric": {
+        "loader_version": "0.19.3"
+    },
+    "neoforge": {
+        "loader_version": "26.2.0.3-beta"
+    }
+}
